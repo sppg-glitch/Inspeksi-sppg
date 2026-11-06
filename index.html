@@ -96,17 +96,84 @@ function initSupabase(){try{supabaseClient=window.supabase.createClient(SUPABASE
 async function testConn(){try{const{error}=await supabaseClient.from('inspections').select('id').limit(1);if(error) throw error;document.getElementById('connStatus').textContent='Online - Terhubung Supabase';document.getElementById('adminConn').textContent='Terhubung';loadFromSupabase(true);}catch(e){document.getElementById('connStatus').textContent='Gagal: '+e.message;document.getElementById('adminConn').textContent='Gagal: '+e.message;}}
 async function loadFromSupabase(silent){if(!supabaseClient) return;try{const{data,error}=await supabaseClient.from('inspections').select('*').order('timestamp',{ascending:false});if(error) throw error;adminData=data||[];document.getElementById('onlineCount').textContent='Supabase: '+adminData.length+' laporan';updateStats();if(!document.getElementById('adminView').classList.contains('hidden')) renderAdmin();if(!silent) toast('Refresh: '+adminData.length+' laporan');}catch(e){if(!silent) toast('Gagal load: '+e.message);}}
 function updateStats(){document.getElementById('statTotal').textContent=adminData.length;let tf=0,tl=0,tt=0;let lok=new Set();adminData.forEach(r=>{tf+=(r.foto_count||0);tl+=(r.layak||0);tt+=(r.total||139);if(r.lokasi) lok.add(r.lokasi);});document.getElementById('statFoto').textContent=tf;document.getElementById('statAvg').textContent=tt?Math.round(tl/tt*100)+'%':'-';document.getElementById('statLokasi').textContent=lok.size;}
-function renderGroups(){const el=document.getElementById('groups');el.innerHTML=GROUPS.map((g,gi)=>{const items=g.items.map(item=>{const k=keyFor(g.no,item);const s=state[k]||{};return `<div class="item"><div class="item-head"><div class="item-name">${item}</div><span class="item-status">${s.status?(s.status==='layak'?'✅ Layak':'❌ Tidak'):'⏳ Belum diisi'} ${s.foto?'📷':''}</span></div><div class="pair"><button class="opt layak ${s.status==='layak'?'active':''}" onclick="setStatus('${k}','layak')">✓ LAYAK / ADA</button><button class="opt tidak ${s.status==='tidak'?'active':''}" onclick="setStatus('${k}','tidak')">✕ TIDAK</button></div><textarea placeholder="Keterangan (opsional)..." oninput="setKet('${k}',this.value)">${s.keterangan||''}</textarea><div class="foto-row"><label class="foto-btn">📷 Ambil / Upload Foto<input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleFoto('${k}',this)"></label>${s.foto?`<button class="btn btn-dark" style="flex:0 0 auto;padding:10px 14px" onclick="viewFoto('${k}')">Lihat Foto</button><button class="btn" style="flex:0 0 auto;background:#fee2e2;color:#991b1b;padding:10px 14px" onclick="delFoto('${k}')">Hapus</button>`:''}</div>${s.foto?`<img src="${s.foto}" class="foto-img" onclick="viewFoto('${k}')">`:''}</div>`;}).join('');return `<details class="group" ${gi<1?'open':''}><summary><div><div class="group-no">NO ${g.no}</div><div class="group-title">${g.inspeksi}</div><div class="group-sub">${g.items.length} item</div></div><span style="font-size:20px">▾</span></summary><div style="padding:0 16px 12px">${items}</div></details>`;}).join('');updateProgress();}
+function renderGroups(){const el=document.getElementById('groups');el.innerHTML=GROUPS.map((g,gi)=>{const items=g.items.map(item=>{const k=keyFor(g.no,item);const s=state[k]||{};return `<div class="item" data-key="${k}"><div class="item-head"><div class="item-name">${item}</div><span class="item-status">${s.status?(s.status==='layak'?'✅ Layak':'❌ Tidak'):'⏳ Belum diisi'} ${s.foto?'📷':''}</span></div><div class="pair"><button class="opt layak ${s.status==='layak'?'active':''}" onclick="setStatus('${k}','layak')">✓ LAYAK / ADA</button><button class="opt tidak ${s.status==='tidak'?'active':''}" onclick="setStatus('${k}','tidak')">✕ TIDAK</button></div><textarea placeholder="Keterangan (opsional)..." oninput="setKet('${k}',this.value)">${s.keterangan||''}</textarea><div class="foto-row"><label class="foto-btn">📷 📷 Ambil Foto - Auto Kompres Otomatis<input type="file" accept="image/*" capture="environment" style="display:none" onchange="handleFoto('${k}',this)"></label>${s.foto?`<button class="btn btn-dark" style="flex:0 0 auto;padding:10px 14px" onclick="viewFoto('${k}')">Lihat Foto</button><button class="btn" style="flex:0 0 auto;background:#fee2e2;color:#991b1b;padding:10px 14px" onclick="delFoto('${k}')">Hapus</button>`:''}</div>${s.foto?`<img src="${s.foto}" class="foto-img" onclick="viewFoto('${k}')">`:''}</div>`;}).join('');return `<details class="group" ${gi<1?'open':''}><summary><div><div class="group-no">NO ${g.no}</div><div class="group-title">${g.inspeksi}</div><div class="group-sub">${g.items.length} item</div></div><span style="font-size:20px">▾</span></summary><div style="padding:0 16px 12px">${items}</div></details>`;}).join('');updateProgress();}
 function setStatus(k,st){state[k]=state[k]||{};state[k].status=st;saveDraft(true);renderGroups();}
 function setKet(k,v){state[k]=state[k]||{};state[k].keterangan=v;updateProgress();}
-function handleFoto(k,input){const f=input.files[0];if(!f) return;const r=new FileReader();r.onload=()=>{state[k]=state[k]||{};state[k].foto=r.result;saveDraft(true);renderGroups();toast('Foto tersimpan');};r.readAsDataURL(f);}
+function compressImage(file, maxW, quality, cb){
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    let w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(1, maxW / w);
+    w = Math.round(w*scale); h = Math.round(h*scale);
+    const canvas = document.createElement('canvas'); canvas.width=w; canvas.height=h;
+    const ctx = canvas.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+    URL.revokeObjectURL(url);
+    try{ cb(canvas.toDataURL('image/jpeg', quality)); }catch(e){ cb(null); }
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); cb(null); };
+  img.src = url;
+}
+function handleFoto(k,input){
+  const f=input.files[0]; if(!f) return;
+  // Tampilkan ukuran asli langsung di toast
+  const sizeMB=(f.size/1024/1024).toFixed(2);
+  toast('Foto '+sizeMB+' MB - mengompres otomatis...');
+  // Simpan ukuran asli untuk info
+  window._lastFotoSize = f.size;
+  // Foto HP 4000px -> kompres ke 1000px, kualitas 0.72. Dari 4MB jadi ~120-180KB, 10x lebih cepat.
+  compressImage(f, 900, 0.68, (compressed)=>{
+    if(compressed){
+      state[k]=state[k]||{}; state[k].foto=compressed; saveDraft(true); updateProgress();
+      // UPDATE HANYA ITEM INI SAJA - tidak render ulang 139 item (ini yang bikin lama)
+      const el = document.querySelector('[data-key="'+k.replace(/"/g,'')+'"]');
+      // Hitung ukuran hasil kompres
+      const afterKB = Math.round(compressed.length*3/4/1024);
+      const beforeKB = Math.round((window._lastFotoSize||0)/1024);
+      if(el){
+        // Update status di item itu
+        const st = el.querySelector('.item-status'); if(st) st.textContent = (state[k].status==='layak'?'✅ Layak':state[k].status==='tidak'?'❌ Tidak':'⏳ Belum diisi')+' 📷';
+        // Update / tambah gambar di item itu
+        let img = el.querySelector('img.foto-img');
+        if(!img){ img=document.createElement('img'); img.className='foto-img'; el.appendChild(img); }
+        img.src=compressed;
+        // Update tombol foto row jika perlu - reload ringan: tidak perlu full render
+      } else { renderGroups(); }
+      toast('✅ Foto auto-kompres: '+beforeKB+' KB → '+afterKB+' KB, langsung tersimpan!');
+    }
+    else {
+      // Fallback kalau kompres gagal: pakai cara lama tapi tetap dibatasi
+      const r=new FileReader(); r.onload=()=>{ state[k]=state[k]||{}; state[k].foto=r.result; saveDraft(true); renderGroups(); toast('Foto tersimpan'); }; r.readAsDataURL(f);
+    }
+    input.value='';
+  });
+}
+// Kompres juga foto lama yang sudah tersimpan besar saat load / kirim
+async function compressExistingPhotos(){
+  let changed=false;
+  for(const k of Object.keys(state)){
+    const foto=state[k] && state[k].foto;
+    if(foto && foto.length>350000){
+      // Buat image dari base64 lalu kompres ulang
+      try{
+        const res = await fetch(foto); const blob = await res.blob();
+        const file = new File([blob], 'foto.jpg', {type:'image/jpeg'});
+        await new Promise((resolve)=>{
+          compressImage(file, 1000, 0.72, (c)=>{ if(c){ state[k].foto=c; changed=true; } resolve(); });
+        });
+      }catch(e){}
+    }
+  }
+  if(changed){ saveDraft(true); renderGroups(); toast('Foto lama dikompres - jadi lebih ringan'); }
+}
+
 function delFoto(k){if(state[k]) delete state[k].foto;saveDraft(true);renderGroups();}
 function viewFoto(k){document.getElementById('photoBig').src=state[k].foto;document.getElementById('photoModal').classList.add('open');}
 function updateProgress(){let f=0,l=0,t=0,fo=0;Object.values(state).forEach(s=>{if(s.status){f++;if(s.status==='layak')l++;else t++;}if(s.foto)fo++;});document.getElementById('progressText').textContent=f+' / 139 terisi • '+l+' Layak • '+t+' Tidak • '+fo+' Foto';document.getElementById('progressBar').style.width=(f/139*100)+'%';}
 function collectDetail(){let a=[];GROUPS.forEach(g=>{g.items.forEach(item=>{const k=keyFor(g.no,item);const s=state[k]||{};a.push({no:g.no,inspeksi:g.inspeksi,item:item,status:s.status||'',keterangan:s.keterangan||'',foto:s.foto||''});});});return a;}
 function saveDraft(silent){localStorage.setItem('sppg_draft',JSON.stringify({lokasi:document.getElementById('lokasi').value,tanggal:document.getElementById('tanggal').value,auditor:document.getElementById('auditor').value,state}));if(!silent) toast('Draft tersimpan di HP ini');}
 function loadDraft(){try{const d=JSON.parse(localStorage.getItem('sppg_draft')||'null');if(d){document.getElementById('lokasi').value=d.lokasi||'';document.getElementById('tanggal').value=d.tanggal||new Date().toISOString().slice(0,10);document.getElementById('auditor').value=d.auditor||'';state=d.state||{};}else document.getElementById('tanggal').value=new Date().toISOString().slice(0,10);}catch(e){document.getElementById('tanggal').value=new Date().toISOString().slice(0,10);}}
-async function sendToSupabase(){const lokasi=document.getElementById('lokasi').value.trim();if(!lokasi){toast('Isi Lokasi SPPG dulu!');return;}const detail=collectDetail();let layak=detail.filter(d=>d.status==='layak').length,tidak=detail.filter(d=>d.status==='tidak').length,foto=detail.filter(d=>d.foto).length;const payload={lokasi,tanggal:document.getElementById('tanggal').value||new Date().toISOString().slice(0,10),auditor:document.getElementById('auditor').value.trim()||'-',layak,tidak,total:139,foto_count:foto,detail:detail,status:'selesai'};toast('Mengirim ke Supabase...');try{const{data,error}=await supabaseClient.from('inspections').insert([payload]).select();if(error) throw error;toast('✅ Tersimpan Online! ID: '+data[0].id.slice(0,8));loadFromSupabase(true);}catch(e){toast('❌ Gagal: '+e.message);alert('Gagal kirim Supabase:\n'+e.message+'\n\nCek tabel inspections & RLS Policy "allow all" sudah dibuat?');}}
+async function sendToSupabase(){await compressExistingPhotos();const lokasi=document.getElementById('lokasi').value.trim();if(!lokasi){toast('Isi Lokasi SPPG dulu!');return;}const detail=collectDetail();let layak=detail.filter(d=>d.status==='layak').length,tidak=detail.filter(d=>d.status==='tidak').length,foto=detail.filter(d=>d.foto).length;const payload={lokasi,tanggal:document.getElementById('tanggal').value||new Date().toISOString().slice(0,10),auditor:document.getElementById('auditor').value.trim()||'-',layak,tidak,total:139,foto_count:foto,detail:detail,status:'selesai'};toast('Mengirim ke Supabase...');try{const{data,error}=await supabaseClient.from('inspections').insert([payload]).select();if(error) throw error;toast('✅ Tersimpan Online! ID: '+data[0].id.slice(0,8));loadFromSupabase(true);}catch(e){toast('❌ Gagal: '+e.message);alert('Gagal kirim Supabase:\n'+e.message+'\n\nCek tabel inspections & RLS Policy "allow all" sudah dibuat?');}}
 function getReport(){const detail=collectDetail();let layak=detail.filter(d=>d.status==='layak').length,tidak=detail.filter(d=>d.status==='tidak').length,foto=detail.filter(d=>d.foto).length;return{lokasi:document.getElementById('lokasi').value||'Lokasi belum diisi',tanggal:document.getElementById('tanggal').value,auditor:document.getElementById('auditor').value||'-',layak,tidak,foto_count:foto,total:139,detailData:detail,detail:detail};}
 async function exportExcelFromReport(rep,filename){const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet('Checklist SPPG');ws.columns=[{width:6},{width:28},{width:36},{width:10},{width:10},{width:30},{width:22}];ws.mergeCells('A1:G1');ws.getCell('A1').value='CHECKLIST INSPEKSI SPPG';ws.getCell('A1').font={bold:true,size:16,color:{argb:'FFFFFFFF'}};ws.getCell('A1').fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F4E79'}};ws.getCell('A1').alignment={horizontal:'center',vertical:'middle'};ws.getRow(1).height=30;ws.mergeCells('A2:G2');ws.getCell('A2').value=`Lokasi: ${rep.lokasi} | Tanggal: ${rep.tanggal} | Auditor: ${rep.auditor} | ${rep.layak} Layak / ${rep.tidak} Tidak / ${rep.foto_count} Foto / ${Math.round(rep.layak/139*100)}% Layak`;ws.getCell('A2').alignment={horizontal:'center'};const hr=ws.addRow(['NO','INSPEKSI','ITEM','LAYAK','TIDAK','KETERANGAN','FOTO BUKTI']);hr.eachCell(c=>{c.font={bold:true,color:{argb:'FFFFFFFF'}};c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF1F4E79'}};c.alignment={horizontal:'center',vertical:'middle',wrapText:true};c.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};});rep.detailData.forEach((d,i)=>{const row=ws.addRow([d.no,d.inspeksi,d.item,d.status==='layak'?'✓':'',d.status==='tidak'?'✓':'',d.keterangan||'',d.foto?'[Lihat Foto]':'-']);row.height=80;row.eachCell(c=>{c.alignment={vertical:'middle',wrapText:true};c.border={top:{style:'thin'},bottom:{style:'thin'},left:{style:'thin'},right:{style:'thin'}};if(i%2===0)c.fill={type:'pattern',pattern:'solid',fgColor:{argb:'FFD9E2F3'}};});if(d.foto){try{const ext=d.foto.includes('png')?'png':'jpeg';const id=wb.addImage({base64:d.foto,extension:ext});ws.addImage(id,{tl:{col:6,row:3+i},ext:{width:110,height:70}});}catch(e){}}});ws.autoFilter='A3:G3';const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),2000);toast('Excel + Foto diunduh');}
 function exportExcelCurrent(){exportExcelFromReport(getReport(),'Inspeksi-SPPG-'+(document.getElementById('lokasi').value||'SPPG')+'.xlsx');}
