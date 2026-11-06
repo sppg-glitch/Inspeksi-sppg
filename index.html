@@ -144,58 +144,48 @@ function compressImage(file, maxW, quality, cb){
   img.onerror = () => { URL.revokeObjectURL(url); cb(null); };
   img.src = url;
 }
+
 function handleFoto(k,input){
   const f=input.files[0]; if(!f) return;
-  // Tampilkan ukuran asli langsung di toast
   const sizeMB=(f.size/1024/1024).toFixed(2);
   toast('Foto '+sizeMB+' MB - mengompres otomatis...');
-  // Simpan ukuran asli untuk info
   window._lastFotoSize = f.size;
-  // Foto HP 4000px -> kompres ke 1000px, kualitas 0.72. Dari 4MB jadi ~120-180KB, 10x lebih cepat.
   compressImage(f, 600, 0.55, (compressed)=>{
-    if(compressed){
-      // Double-kompres: kalau masih >80KB, kecilkan lagi ke 500px / 0.45 agar upload super cepat
-      const estKB = Math.round(compressed.length*3/4/1024);
-      if(estKB > 80){
-        const tmpImg = new Image();
-        tmpImg.onload = () => {
-          const c = document.createElement('canvas');
-          const sc = Math.min(1, 500 / tmpImg.naturalWidth);
-          c.width = Math.round(tmpImg.naturalWidth*sc); c.height = Math.round(tmpImg.naturalHeight*sc);
-          c.getContext('2d').drawImage(tmpImg,0,0,c.width,c.height);
-          const superSmall = c.toDataURL('image/jpeg', 0.45);
-          saveFotoKecil(k, superSmall);
-        };
-        tmpImg.src = compressed;
-        input.value=''; return;
-      }
-      saveFotoKecil(k, compressed); return;
+    if(!compressed){
+      const r=new FileReader(); r.onload=()=>{ state[k]=state[k]||{}; state[k].foto=r.result; saveDraft(true); updateProgress(); toast('Foto tersimpan'); }; r.readAsDataURL(f); input.value=''; return;
     }
-    function saveFotoKecil(k, compressed){
-      state[k]=state[k]||{}; state[k].foto=compressed; saveDraft(true); updateProgress();
-      // UPDATE HANYA ITEM INI SAJA - tidak render ulang 139 item (ini yang bikin lama)
-      const el = document.querySelector('[data-key="'+k.replace(/"/g,'')+'"]');
-      // Hitung ukuran hasil kompres
-      const afterKB = Math.round(compressed.length*3/4/1024);
-      const beforeKB = Math.round((window._lastFotoSize||0)/1024);
-      if(el){
-        // Update status di item itu
-        const st = el.querySelector('.item-status'); if(st) st.textContent = (state[k].status==='layak'?'✅ Layak':state[k].status==='tidak'?'❌ Tidak':'⏳ Belum diisi')+' 📷';
-        // Update / tambah gambar di item itu
-        let img = el.querySelector('img.foto-img');
-        if(!img){ img=document.createElement('img'); img.className='foto-img'; el.appendChild(img); }
-        img.src=compressed;
-        // Update tombol foto row jika perlu - reload ringan: tidak perlu full render
-      } else { renderGroups(); }
-      toast('✅ Foto auto-kompres: '+beforeKB+' KB → '+afterKB+' KB, langsung tersimpan!');
+    const estKB = Math.round(compressed.length*3/4/1024);
+    if(estKB > 80){
+      const tmpImg = new Image();
+      tmpImg.onload = () => {
+        const c = document.createElement('canvas');
+        const sc = Math.min(1, 500 / tmpImg.naturalWidth);
+        c.width = Math.round(tmpImg.naturalWidth*sc); c.height = Math.round(tmpImg.naturalHeight*sc);
+        c.getContext('2d').drawImage(tmpImg,0,0,c.width,c.height);
+        const superSmall = c.toDataURL('image/jpeg', 0.45);
+        saveFotoKecil(k, superSmall);
+      };
+      tmpImg.src = compressed;
+      input.value=''; return;
     }
-    else {
-      // Fallback kalau kompres gagal: pakai cara lama tapi tetap dibatasi
-      const r=new FileReader(); r.onload=()=>{ state[k]=state[k]||{}; state[k].foto=r.result; saveDraft(true); renderGroups(); toast('Foto tersimpan'); }; r.readAsDataURL(f);
-    }
+    saveFotoKecil(k, compressed);
     input.value='';
   });
 }
+function saveFotoKecil(k, compressed){
+  state[k]=state[k]||{}; state[k].foto=compressed; saveDraft(true); updateProgress();
+  const el = document.querySelector('[data-key="'+k.replace(/"/g,'')+'"]');
+  const afterKB = Math.round(compressed.length*3/4/1024);
+  const beforeKB = Math.round((window._lastFotoSize||0)/1024);
+  if(el){
+    const st = el.querySelector('.item-status'); if(st) st.textContent = (state[k].status==='layak'?'✅ Layak':state[k].status==='tidak'?'❌ Tidak':'⏳ Belum diisi')+' 📷';
+    let img = el.querySelector('img.foto-img');
+    if(!img){ img=document.createElement('img'); img.className='foto-img'; el.appendChild(img); }
+    img.src=compressed;
+  } else { renderGroups(); }
+  toast('✅ Foto auto-kompres: '+beforeKB+' KB → '+afterKB+' KB, langsung tersimpan!');
+}
+
 // Kompres juga foto lama yang sudah tersimpan besar saat load / kirim
 async function compressExistingPhotos(){
   let changed=false;
@@ -242,10 +232,9 @@ function renderAdmin(){const q=(document.getElementById('searchAdmin').value||''
 function viewDetail(idx){const r=adminData[idx];const detail=r.detail||[];document.getElementById('detailTitle').textContent=`Detail - ${r.lokasi} (${r.tanggal})`;document.getElementById('detailBody').innerHTML=detail.map(d=>`<div style="border:1px solid #e2e8f0;border-radius:12px;padding:12px"><p style="font-weight:800;font-size:13px">${d.no}. ${d.inspeksi} - ${d.item}</p><p style="font-size:12px">Status: ${d.status==='layak'?'✅ Layak':d.status==='tidak'?'❌ Tidak':'⏳ Belum diisi'} • Ket: ${d.keterangan||'-'}</p>${d.foto?`<img src="${d.foto}" style="width:100%;max-height:220px;object-fit:cover;border-radius:12px;margin-top:8px">`:''}</div>`).join('');document.getElementById('detailModal').classList.add('open');}
 function adminExportExcel(idx){const r=adminData[idx];exportExcelFromReport({lokasi:r.lokasi,tanggal:r.tanggal,auditor:r.auditor,layak:r.layak,tidak:r.tidak,foto_count:r.foto_count,detailData:r.detail||[]},'Inspeksi-'+r.lokasi+'.xlsx');}
 function adminExportPDF(idx){const r=adminData[idx];exportPDFFromReport({lokasi:r.lokasi,tanggal:r.tanggal,auditor:r.auditor,layak:r.layak,tidak:r.tidak,foto_count:r.foto_count,detailData:r.detail||[]},'Inspeksi-'+r.lokasi+'.pdf');}
-async function deleteReport(id){if(!confirm('Hapus laporan ini dari Supabase?')) return;try{ await sbFetch('inspections?id=eq.'+encodeURIComponent(id), {method:'DELETE'}, 8000); toast('Dihapus dari Supabase'); loadFromSupabase(true); }catch(err){ toast('Gagal hapus: '+err.message); } if(false){toast('Dihapus dari Supabase');loadFromSupabase(true);}}
+async function deleteReport(id){ if(!confirm('Hapus laporan ini dari Supabase?')) return; try{ await sbFetch('inspections?id=eq.'+encodeURIComponent(id), {method:'DELETE'}, 8000); toast('Dihapus dari Supabase'); loadFromSupabase(true); }catch(err){ toast('Gagal hapus: '+err.message); } }
 async function exportRekapExcel(){if(!adminData.length){toast('Tidak ada data');return;}const wb=new ExcelJS.Workbook();const ws=wb.addWorksheet('Rekap');ws.columns=[{width:12},{width:22},{width:16},{width:12},{width:12},{width:12},{width:12}];ws.addRow(['REKAP LAPORAN SPPG - SUPABASE ONLINE']);ws.addRow(['Tanggal','Lokasi','Auditor','Layak','Tidak','Foto','% Layak']);adminData.forEach(r=>ws.addRow([r.tanggal,r.lokasi,r.auditor,r.layak,r.tidak,r.foto_count,Math.round((r.layak||0)/(r.total||139)*100)+'%']));const buf=await wb.xlsx.writeBuffer();const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Rekap-SPPG-Semua.xlsx';a.click();toast('Rekap Excel diunduh');}
-function importJSON(e){const f=e.target.files[0];if(!f) return;const r=new FileReader();r.onload=async()=>{try{const j=JSON.parse(r.result);const payload={lokasi:j.lokasi,tanggal:j.tanggal,auditor:j.auditor,layak:j.layak,tidak:j.tidak,total:139,foto_count:j.foto_count,detail:j.detail||j.detailData,status:'selesai'};await sbFetch('inspections', {method:'POST', body: JSON.stringify(payload)}, 15000);ator.clipboard.writeText(location.href).then(()=>toast('Link tersalin'));}
+function importJSON(e){ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=async()=>{ try{ const j=JSON.parse(r.result); const payload={lokasi:j.lokasi,tanggal:j.tanggal,auditor:j.auditor,layak:j.layak,tidak:j.tidak,total:139,foto_count:j.foto_count,detail:j.detail||j.detailData,status:'selesai'}; await sbFetch('inspections', {method:'POST', body: JSON.stringify(payload)}, 15000); toast('Import berhasil masuk Supabase'); loadFromSupabase(true); }catch(err){ toast('Gagal import: '+err.message); } }; r.readAsText(f); }
 
-loadDraft();renderGroups();initSupabase();
 </script>
 </body></html>
